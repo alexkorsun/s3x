@@ -41,7 +41,7 @@ function next(err) {
 
 program
     .version('0.0.1')
-    .option('-c, --config <path>', 'Credentials (s3fs.config.js)');
+    .option('-c, --config <path>', 'Credentials (s3x.config.js)');
 
 
 program.command('upload <from-fs> <to-s3>')

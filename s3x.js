@@ -1,145 +1,139 @@
 #!/usr/bin/env node
 
-var AWS = require('aws-sdk');
-var fs = require('fs');
-var async = require('async');
-var mime = require('mime');
+const AWS = require('aws-sdk');
+const fs = require('fs');
+const async = require('async');
+const mime = require('mime');
+const program = require('commander');
 
-var program = require('commander');
+async function getClient() {
+   let path = program.config || 's3x.config.js';
+   const configExists = fs.existsSync(path);
 
-function getClient(next) {
-    var path = program.config || 's3x.config.js';
-    var configExists = fs.existsSync(path);
+   if (!configExists) {
+      throw new Error('No config file. (s3x.config.js)');
+   }
 
-    if (!configExists) {
-        return next('No config file. (s3x.config.js)');
-    }
+   path = fs.realpathSync(path);
 
-    path = fs.realpathSync(path);
-    var config = require(path);
+   const config = require(path);
 
-    AWS.config.update({
-        accessKeyId: config.key,
-        secretAccessKey: config.secret,
-        region: 'eu-west-1'
-    });
+   AWS.config.update({
+      accessKeyId: config.key,
+      secretAccessKey: config.secret,
+      region: config.region
+   });
 
-    next(null, new AWS.S3({params: {Bucket: config.bucket}}));
+   return new AWS.S3({
+      params: {Bucket: config.bucket},
+      signatureVersion: 'v4'
+   });
 }
 
-function next(err) {
-    if (err) {
-        console.error('[ERROR]', err);
-        return process.exit(1);
-    }
+function finish(err) {
+   if (err) {
+      console.error('[ERROR]', err);
+      return process.exit(1);
+   }
 
-    console.log('done');
-    console.log('');
-    process.exit(0);
+   console.log('done');
+   process.exit(0);
 }
 
 
 program
-    .version('0.0.1')
-    .option('-c, --config <path>', 'Credentials (s3x.config.js)');
+   .version('0.0.1')
+   .option('-c, --config <path>', 'Credentials (s3x.config.js)');
 
 
 program.command('upload <from-fs> <to-s3>')
-    .action(function (from, to) {
+   .action(async function (from, to) {
+      console.log('> upload', from, to);
 
-        console.log('> upload', from, to);
+      try {
+         const client = await getClient();
+         await client.putObject({
+            Key: to,
+            Body: fs.createReadStream(from),
+            ContentType: mime.lookup(from)
+         }).promise();
 
-        getClient(function (err, client) {
-            if (err) {
-                return next(err);
-            }
-
-            client.putObject({
-                Key: to,
-                Body: fs.createReadStream(from),
-                ContentType: mime.lookup(from)
-            }, function (err) {
-                if (err) {
-                    return next(err);
-                }
-
-                next();
-            });
-        });
-    });
+         finish();
+      } catch (err) {
+         finish(err);
+      }
+   });
 
 program.command('download <s3-path> <fs-path>')
-    .action(function (s3path, fsPath) {
+   .action(async function (s3path, fsPath) {
+      try {
+         const client = await getClient();
+         const file = fs.createWriteStream(fsPath);
 
-        getClient(function (err, client) {
-            if (err) {
-                return next(err);
-            }
-
-            var file = require('fs').createWriteStream(fsPath);
-
-            var readStream = client
-                .getObject({Key: s3path})
-                .createReadStream();
+         const readStream = client
+            .getObject({Key: s3path})
+            .createReadStream();
 
 
-            readStream.on('end', function () {
-                next()
-            });
+         readStream.on('end', function () {
+            finish();
+         });
 
-            readStream.pipe(file);
-        });
-    });
+         readStream.pipe(file);
+      } catch (err) {
+         finish(err);
+      }
+   });
 
 program.command('ls [path]')
-    .action(function (path) {
-        path = path || '/';
-        console.log('> ls', path);
+   .action(async function (path) {
+      path = path || '/';
+      console.log('> ls', path);
 
-        getClient(function (err, client) {
-            if (err) {
-                return next(err);
+      try {
+         const client = await getClient();
+
+         let files = [];
+         let response = {
+            IsTruncated: true, Marker: path
+         };
+
+         async.whilst(
+            () => response.IsTruncated,
+            async () => {
+               const data = await client.listObjects({Marker: response.Marker}).promise();
+
+               const _as = data.Contents.map(function (img) {
+                  return '/' + img.Key;
+               });
+
+               files = files.concat(_as);
+               response = data;
+               response.Marker = data.Contents[data.Contents.length - 1].Key;
+            },
+            (err) => {
+               if (err) {
+                  return finish(err);
+               }
+
+               files.forEach(function (file) {
+                  console.log(file);
+               });
+
+               finish();
             }
+         );
 
-
-            var files = [];
-            var response = {IsTruncated: true, Marker: path};
-            async.whilst(
-                function test() {
-                    return response.IsTruncated;
-                },
-                function getMore(cb) {
-                    client.listObjects({Marker: response.Marker}, function (err, data) {
-                        var _as = data.Contents.map(function (img) {
-                            return '/' + img.Key;
-                        });
-
-                        files = files.concat(_as);
-                        response = data;
-                        response.Marker = data.Contents[data.Contents.length - 1].Key;
-                        return cb(err);
-                    });
-                },
-                function (err) {
-                    if (err) {
-                        return next(err);
-                    }
-
-                    files.forEach(function (file) {
-                        console.log(file);
-                    });
-
-                    next();
-                }
-            );
-        });
-    });
+      } catch (err) {
+         finish(err);
+      }
+   });
 
 
 program.parse(process.argv);
 
 if (!process.argv.slice(2).length) {
-    program.outputHelp();
+   program.outputHelp();
 }
 
 

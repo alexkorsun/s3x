@@ -1,6 +1,6 @@
 {
   "name": "s3x",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "AWS S3 deployment tool",
   "main": "s3x.js",
   "scripts": {
@@ -26,9 +26,9 @@
   },
   "homepage": "https://github.com/alexkorsun/s3x#readme",
   "dependencies": {
-    "async": "^2.0.1",
-    "aws-sdk": "^2.4.11",
-    "commander": "^2.9.0",
-    "mime": "^1.3.4"
+    "async": "^2.6.1",
+    "aws-sdk": "^2.344.0",
+    "commander": "^2.19.0",
+    "mime": "^1.6.0"
   }
 }
